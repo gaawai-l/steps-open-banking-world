@@ -10,9 +10,14 @@ import * as platform from './platform.js';
 
 const DINING_MERCHANT = 'italian-restaurant';
 
-/** Use case 1 — Phase 1: compare mortgage rates across all four banks in one view. */
-export function compareMortgageRates() {
-  return [...banks.mortgageRates()].sort((a, b) => a.mortgageRate - b.mortgageRate);
+/**
+ * Use case 1 — Phase 1: compare mortgage rates across all four banks in one view.
+ *
+ * Every call re-reads each bank's live quote rather than a cached table, so the ranking
+ * reflects the market at the moment of the comparison and can change between calls.
+ */
+export function compareMortgageRates(at = Date.now()) {
+  return [...banks.mortgageRates(at)].sort((a, b) => a.mortgageRate - b.mortgageRate);
 }
 
 /** Use case 2 — Phase 2: submit one pre-filled credit card application to every bank. */

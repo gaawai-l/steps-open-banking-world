@@ -97,13 +97,40 @@ export const listBanks = () => BANK_KEYS.map((key) => ({ key, ...BANKS[key] }));
 
 // --- Phase 1: product and service information -------------------------------------
 
+/**
+ * Mortgage pricing moves during the day, so a bank's Open API publishes a live quote
+ * rather than its board rate. Quotes are repriced once a minute and are deterministic
+ * for a given minute: two clients comparing at the same moment see the same market, and
+ * a client refreshing within the same minute is not shown meaningless noise.
+ */
+const RATE_REPRICE_MS = 60_000;
+/** How far a live quote drifts either side of the board rate, in basis points. */
+const RATE_DRIFT_BP = 12;
+
+function quoteFor(bank, tick) {
+  const seed = [...bank].reduce((acc, char) => acc * 31 + char.charCodeAt(0), 7) + tick;
+  const drift = (Math.sin(seed) * RATE_DRIFT_BP) / 100;
+  return Number((BANKS[bank].mortgageRate + drift).toFixed(3));
+}
+
 /** Phase 1 product information; the wallet aggregates this across all four banks. */
-export function mortgageRates() {
-  return BANK_KEYS.map((key) => ({
-    bank: key,
-    name: BANKS[key].name,
-    mortgageRate: BANKS[key].mortgageRate,
-  }));
+export function mortgageRates(at = Date.now()) {
+  const tick = Math.floor(at / RATE_REPRICE_MS);
+  return BANK_KEYS.map((key) => {
+    const mortgageRate = quoteFor(key, tick);
+    const previousRate = quoteFor(key, tick - 1);
+    return {
+      bank: key,
+      name: BANKS[key].name,
+      // The board rate stays visible so a live quote can be read as a move against it.
+      boardRate: BANKS[key].mortgageRate,
+      mortgageRate,
+      previousRate,
+      change: Number((mortgageRate - previousRate).toFixed(3)),
+      quotedAt: new Date(tick * RATE_REPRICE_MS).toISOString(),
+      repricesEverySeconds: RATE_REPRICE_MS / 1000,
+    };
+  });
 }
 
 export function depositProducts(bank) {

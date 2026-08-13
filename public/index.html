@@ -97,6 +97,9 @@ const post = (path, body) => fetch(path, {
   body: JSON.stringify(body || {}),
 }).then((r) => r.json());
 const get = (path) => fetch(path).then((r) => r.json());
+// Rates keep moving, so the comparison re-polls instead of freezing on first click.
+let ratesTimer = null;
+
 const show = (id, data) => {
   const node = document.getElementById(id);
   node.hidden = false;
@@ -106,10 +109,16 @@ const show = (id, data) => {
 const actions = {
   async rates() {
     const data = await get('/api/rates');
+    const top = data.rates[0] ?? {};
+    const move = (change) => (change > 0 ? `▲ +${change}` : change < 0 ? `▼ ${change}` : '—');
     document.getElementById('rates-out').innerHTML =
-      `<table><thead><tr><th></th><th>Bank</th><th>Mortgage rate</th></tr></thead><tbody>${
-        data.rates.map((r, i) => `<tr><td>${i === 0 ? '★' : ''}</td><td>${r.name}</td><td>${r.mortgageRate}%</td></tr>`).join('')
+      `<p class="phase">Live quotes &middot; repriced every ${top.repricesEverySeconds ?? 60}s &middot; as of ${new Date(top.quotedAt ?? Date.now()).toLocaleTimeString()}</p>`
+      + `<table><thead><tr><th></th><th>Bank</th><th>Live rate</th><th>Move</th><th>Board</th></tr></thead><tbody>${
+        data.rates.map((r, i) => `<tr><td>${i === 0 ? '★' : ''}</td><td>${r.name}</td><td>${r.mortgageRate}%</td><td>${move(r.change)}</td><td>${r.boardRate}%</td></tr>`).join('')
       }</tbody></table>`;
+    // The ranking can change between polls, which is the point of comparing in real time.
+    clearInterval(ratesTimer);
+    ratesTimer = setInterval(() => actions.rates(), 20000);
   },
   async apply() { show('apply-out', await post('/api/applications', { applicantName: 'Maria' })); },
   async consent() { show('accounts-out', await post('/api/consent/grant')); },
