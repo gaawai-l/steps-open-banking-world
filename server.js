@@ -153,8 +153,6 @@ function handleWallet(req, res, path, body) {
       return sendJson(res, 201, wallet.revokeAccountConsent());
     case '/api/applications':
       return sendJson(res, 200, { applications: wallet.applyForCreditCards(body.applicantName || 'Maria') });
-    case '/api/pos/checkout':
-      return sendJson(res, 200, wallet.posSmartDiscount(Number(body.amount || 0), body.merchantCategory));
     case '/api/credit-limit':
       return sendJson(res, 200, wallet.requestCreditLimitBoost(body.bank || 's-dbs', Number(body.requestedAmount || 0)));
     case '/api/split-bill':

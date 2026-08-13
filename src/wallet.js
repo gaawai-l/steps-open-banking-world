@@ -48,32 +48,6 @@ export function revokeAccountConsent() {
   return platform.recordConsent({ scope: 'accounts:read', action: 'revoked' });
 }
 
-/**
- * Use case 4 — Phase 4: at the point of sale, select the card carrying the best offer
- * for this merchant category and apply the discount automatically.
- */
-export function posSmartDiscount(amount, merchantCategory = 'fine_dining') {
-  const offers = banks.BANK_KEYS.map((bank) => {
-    const card = banks.creditCardOffers(bank);
-    return { bank, ...card.merchantOffer, cashbackPercent: card.cashbackPercent };
-  });
-  const eligible = offers
-    .filter((offer) => offer.merchantCategory === merchantCategory)
-    .sort((a, b) => b.discountPercent - a.discountPercent);
-  const best = eligible[0];
-  if (!best) {
-    return { selectedCard: null, discountPercent: 0, originalAmount: amount, payable: amount };
-  }
-  const payable = Number((amount * (1 - best.discountPercent / 100)).toFixed(2));
-  return {
-    selectedCard: best.bank,
-    discountPercent: best.discountPercent,
-    originalAmount: amount,
-    payable,
-    saved: Number((amount - payable).toFixed(2)),
-  };
-}
-
 /** Use case 5 — Phase 3 & 4: automated credit limit review when the bill exceeds it. */
 export function requestCreditLimitBoost(bank, requestedAmount) {
   return banks.reviewCreditLimit(bank, { requestedAmount });

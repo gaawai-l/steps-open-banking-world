@@ -41,13 +41,6 @@
   </section>
 
   <section>
-    <h2>4. POS smart discount</h2>
-    <p class="phase">Phase 4 &middot; auto-select the best dining card at the restaurant terminal</p>
-    <button data-action="pos">Pay HKD 1,860 at the Italian restaurant</button>
-    <pre id="pos-out" hidden></pre>
-  </section>
-
-  <section>
     <h2>5. Instant credit limit boost</h2>
     <p class="phase">Phase 3 &amp; 4 &middot; automated review when the bill exceeds the limit</p>
     <button data-action="limit">Request review on S-DBS</button>
@@ -121,7 +114,6 @@ const actions = {
       data.accounts.map((a) => `<tr><td>${a.bank}</td><td>${a.type}</td><td>${a.balance.toLocaleString()} ${a.currency}</td></tr>`).join('')
     }</tbody></table><p class="phase">Total: ${data.totalBalance.toLocaleString()} HKD</p>`;
   },
-  async pos() { show('pos-out', await post('/api/pos/checkout', { amount: 1860, merchantCategory: 'fine_dining' })); },
   async limit() { show('limit-out', await post('/api/credit-limit', { bank: 's-dbs', requestedAmount: 26000 })); },
   async split() { show('split-out', await post('/api/split-bill', { amount: 1860, payers: ['s-hsbc', 's-boc'] })); },
   async points() { show('points-out', await post('/api/points/offset', { bank: 's-dbs', points: 12000 })); },
