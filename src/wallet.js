@@ -29,6 +29,7 @@ export function applyForCreditCards(applicantName) {
  * the compliance ledger has to be able to show it happened.
  */
 export function aggregateAccounts() {
+  // Consent check: aggregation is refused unless an active accounts:read consent exists.
   if (!platform.hasActiveConsent('accounts:read')) {
     return { error: 'consent_required', scope: 'accounts:read' };
   }
@@ -57,6 +58,8 @@ export function posSmartDiscount(amount, merchantCategory = 'fine_dining') {
     const card = banks.creditCardOffers(bank);
     return { bank, ...card.merchantOffer, cashbackPercent: card.cashbackPercent };
   });
+  // Automatic card selection: pick the highest discount published for this merchant
+  // category. For fine dining that is the S-DBS card and its exclusive 15% offer.
   const eligible = offers
     .filter((offer) => offer.merchantCategory === merchantCategory)
     .sort((a, b) => b.discountPercent - a.discountPercent);
@@ -95,8 +98,9 @@ export function diningCheckout(amount, merchantCategory = 'fine_dining') {
   const alreadyUsed = Math.abs(Math.min(account.balance, 0));
   const requiredCredit = Number((alreadyUsed + selection.payable).toFixed(2));
 
-  // Over the limit: evaluate automatically rather than declining and leaving the diner
-  // to raise it manually.
+  // Bill exceeds the credit limit: this checkout automatically triggers the S-DBS credit
+  // limit evaluation itself, rather than declining and leaving the diner to request an
+  // increase manually. No separate user action is involved.
   const creditLimitReview = requiredCredit > account.creditLimit
     ? banks.reviewCreditLimit(selection.selectedCard, { requestedAmount: requiredCredit })
     : null;
