@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hippo FinTech Wallet</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <h1>Hippo FinTech Wallet</h1>
+  <p class="sub">A Third-Party Service Provider calling the four simulated banks' Open APIs.</p>
+  <nav>
+    <a href="/">Wallet</a>
+    <a href="/pos.html">Restaurant POS</a>
+    <a href="/portal.html">API Platform</a>
+  </nav>
+</header>
+<main>
+  <section>
+    <h2>1. Mortgage rate aggregation</h2>
+    <p class="phase">Phase 1 &middot; compare rates across S-HSBC, S-SCB, S-DBS and S-BOC</p>
+    <button data-action="rates">Compare rates</button>
+    <div id="rates-out"></div>
+  </section>
+
+  <section>
+    <h2>2. One-click credit card applications</h2>
+    <p class="phase">Phase 2 &middot; submit a pre-filled application to all four banks</p>
+    <button data-action="apply">Apply to all banks</button>
+    <pre id="apply-out" hidden></pre>
+  </section>
+
+  <section>
+    <h2>3. Account aggregation</h2>
+    <p class="phase">Phase 3 &middot; consolidated balances and transaction history, after consent</p>
+    <button data-action="consent">Grant consent</button>
+    <button class="ghost" data-action="revoke">Revoke consent</button>
+    <button data-action="accounts">Load accounts</button>
+    <div id="accounts-out"></div>
+  </section>
+
+  <section>
+    <h2>4. POS smart discount</h2>
+    <p class="phase">Phase 4 &middot; auto-select the best dining card at the restaurant terminal</p>
+    <button data-action="pos">Pay HKD 1,860 at the Italian restaurant</button>
+    <pre id="pos-out" hidden></pre>
+  </section>
+
+  <section>
+    <h2>5. Instant credit limit boost</h2>
+    <p class="phase">Phase 3 &amp; 4 &middot; automated review when the bill exceeds the limit</p>
+    <button data-action="limit">Request review on S-DBS</button>
+    <pre id="limit-out" hidden></pre>
+  </section>
+
+  <section>
+    <h2>6. Smart bill splitting</h2>
+    <p class="phase">Phase 4 &middot; real-time FPS transfers from each payer's bank</p>
+    <button data-action="split">Split HKD 1,860 with two friends</button>
+    <pre id="split-out" hidden></pre>
+  </section>
+
+  <section>
+    <h2>7. Point stacking &amp; offset</h2>
+    <p class="phase">Phase 3 &amp; 4 &middot; convert reward points into cash credit at checkout</p>
+    <button data-action="points">Redeem 12,000 S-DBS points</button>
+    <pre id="points-out" hidden></pre>
+  </section>
+
+  <section>
+    <h2>8. Micro-wealth investment</h2>
+    <p class="phase">Phase 4 &middot; round up the bill and route the spare change into a fund</p>
+    <button data-action="roundup">Round up and invest</button>
+    <pre id="roundup-out" hidden></pre>
+  </section>
+
+  <section>
+    <h2>Embedded banking (BaaS)</h2>
+    <p class="phase">White-label credit line and BNPL instalments issued by S-DBS, offered as Hippo products without a banking licence</p>
+    <button data-action="embedded">Open a Hippo credit line</button>
+    <button data-action="bnpl">Split a large bill into 6 instalments</button>
+    <pre id="baas-out" hidden></pre>
+  </section>
+
+  <section>
+    <h2>Contextual wealth advice</h2>
+    <p class="phase">Phase 3 holdings data drives a personalized savings recommendation</p>
+    <button data-action="advice">Get a recommendation</button>
+    <pre id="advice-out" hidden></pre>
+  </section>
+</main>
+<script>
+const post = (path, body) => fetch(path, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body || {}),
+}).then((r) => r.json());
+const get = (path) => fetch(path).then((r) => r.json());
+const show = (id, data) => {
+  const node = document.getElementById(id);
+  node.hidden = false;
+  node.textContent = JSON.stringify(data, null, 2);
+};
+
+const actions = {
+  async rates() {
+    const data = await get('/api/rates');
+    document.getElementById('rates-out').innerHTML =
+      `<table><thead><tr><th></th><th>Bank</th><th>Mortgage rate</th></tr></thead><tbody>${
+        data.rates.map((r, i) => `<tr><td>${i === 0 ? '★' : ''}</td><td>${r.name}</td><td>${r.mortgageRate}%</td></tr>`).join('')
+      }</tbody></table>`;
+  },
+  async apply() { show('apply-out', await post('/api/applications', { applicantName: 'Maria' })); },
+  async consent() { show('accounts-out', await post('/api/consent/grant')); },
+  async revoke() { show('accounts-out', await post('/api/consent/revoke')); },
+  async accounts() {
+    const data = await get('/api/accounts');
+    const node = document.getElementById('accounts-out');
+    if (data.error) { node.innerHTML = `<p class="phase">${data.error}: grant consent first</p>`; return; }
+    node.innerHTML = `<table><thead><tr><th>Bank</th><th>Type</th><th>Balance</th></tr></thead><tbody>${
+      data.accounts.map((a) => `<tr><td>${a.bank}</td><td>${a.type}</td><td>${a.balance.toLocaleString()} ${a.currency}</td></tr>`).join('')
+    }</tbody></table><p class="phase">Total: ${data.totalBalance.toLocaleString()} HKD</p>`;
+  },
+  async pos() { show('pos-out', await post('/api/pos/checkout', { amount: 1860, merchantCategory: 'fine_dining' })); },
+  async limit() { show('limit-out', await post('/api/credit-limit', { bank: 's-dbs', requestedAmount: 26000 })); },
+  async split() { show('split-out', await post('/api/split-bill', { amount: 1860, payers: ['s-hsbc', 's-boc'] })); },
+  async points() { show('points-out', await post('/api/points/offset', { bank: 's-dbs', points: 12000 })); },
+  async roundup() { show('roundup-out', await post('/api/roundup', { amount: 1581 })); },
+  async embedded() { show('baas-out', await post('/api/credit/embedded', { amount: 30000 })); },
+  async bnpl() { show('baas-out', await post('/api/credit/bnpl', { amount: 1860, instalments: 6 })); },
+  async advice() { show('advice-out', await get('/api/wealth-advice')); },
+};
+
+document.addEventListener('click', async (event) => {
+  const button = event.target.closest('button[data-action]');
+  if (!button) return;
+  button.disabled = true;
+  try { await actions[button.dataset.action](); }
+  catch (error) { alert(String(error)); }
+  finally { button.disabled = false; }
+});
+</script>
+</body>
+</html>

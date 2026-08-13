@@ -1,0 +1,9 @@
+{
+  "name": "steps-open-banking-world",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Simulated Open Banking & BaaS world: four banks, Hippo FinTech Wallet, a fine dining merchant and an API monetization platform",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" }
+}

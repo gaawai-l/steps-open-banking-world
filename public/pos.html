@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fine Dining Merchant POS</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <h1>Fine Dining Merchant &mdash; POS Terminal</h1>
+  <p class="sub">An upscale Italian restaurant connected directly to the Open Banking payment ecosystem.</p>
+  <nav>
+    <a href="/">Wallet</a>
+    <a href="/pos.html">Restaurant POS</a>
+    <a href="/portal.html">API Platform</a>
+  </nav>
+</header>
+<main>
+  <section>
+    <h2>Zero-friction table payment</h2>
+    <p class="phase">Phase 4 &middot; embedded QR payment, no card terminal rental</p>
+    <button data-action="qr">Charge table T-12 for HKD 1,860</button>
+    <pre id="qr-out" hidden></pre>
+  </section>
+
+  <section>
+    <h2>Instant merchant settlement</h2>
+    <p class="phase">Phase 4 &middot; direct debit settles same day instead of the 2-3 day card delay</p>
+    <button data-action="settle">Settle HKD 1,860</button>
+    <pre id="settle-out" hidden></pre>
+  </section>
+
+  <section>
+    <h2>Pay-by-bank vs card acquiring</h2>
+    <p class="phase">Processing fee comparison for the same ticket</p>
+    <button data-action="fees">Compare fees on HKD 1,860</button>
+    <div id="fees-out"></div>
+  </section>
+
+  <section>
+    <h2>Working capital loan</h2>
+    <p class="phase">POS transaction volume shared over the API returns a pre-approved S-DBS offer</p>
+    <button data-action="capital">Share monthly volume of HKD 840,000</button>
+    <pre id="capital-out" hidden></pre>
+  </section>
+</main>
+<script>
+const post = (path, body) => fetch(path, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body || {}),
+}).then((r) => r.json());
+const show = (id, data) => {
+  const node = document.getElementById(id);
+  node.hidden = false;
+  node.textContent = JSON.stringify(data, null, 2);
+};
+
+const actions = {
+  async qr() { show('qr-out', await post('/api/merchant/qr-payment', { amount: 1860, table: 'T-12' })); },
+  async settle() { show('settle-out', await post('/open-api/merchant/settlement', { amount: 1860, merchant: 'italian-restaurant' })); },
+  async fees() {
+    const data = await post('/platform/merchant-fees', { amount: 1860 });
+    document.getElementById('fees-out').innerHTML =
+      `<table><thead><tr><th>Method</th><th>Rate</th><th>Fee</th></tr></thead><tbody>
+        <tr><td>Pay-by-bank (A2A)</td><td>${(data.payByBankRate * 100).toFixed(1)}%</td><td>HKD ${data.payByBankFee}</td></tr>
+        <tr><td>Card scheme</td><td>${(data.cardSchemeRate * 100).toFixed(1)}%</td><td>HKD ${data.cardSchemeFee}</td></tr>
+      </tbody></table><p class="phase">Saved: HKD ${data.saved}</p>`;
+  },
+  async capital() { show('capital-out', await post('/api/merchant/working-capital', { monthlyPosVolume: 840000 })); },
+};
+
+document.addEventListener('click', async (event) => {
+  const button = event.target.closest('button[data-action]');
+  if (!button) return;
+  button.disabled = true;
+  try { await actions[button.dataset.action](); }
+  catch (error) { alert(String(error)); }
+  finally { button.disabled = false; }
+});
+</script>
+</body>
+</html>

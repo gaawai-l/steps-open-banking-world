@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API Management &amp; Monetization Platform</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <h1>API Management &amp; Monetization Platform</h1>
+  <p class="sub">Developer portal and sandbox, API gateway, monetization engine and compliance monitoring.</p>
+  <nav>
+    <a href="/">Wallet</a>
+    <a href="/pos.html">Restaurant POS</a>
+    <a href="/portal.html">API Platform</a>
+  </nav>
+</header>
+<main>
+  <section>
+    <h2>Developer portal &amp; sandbox</h2>
+    <p class="phase">Onboard a TSP, then call a live endpoint from the browser</p>
+    <button data-action="register">Register a TSP on the growth tier</button>
+    <button class="ghost" data-action="catalogue">Show endpoint catalogue</button>
+    <pre id="portal-out" hidden></pre>
+    <div id="catalogue-out"></div>
+  </section>
+
+  <section>
+    <h2>API gateway</h2>
+    <p class="phase">OAuth client-credentials token, then rate-limited access to a Phase 3 endpoint</p>
+    <button data-action="token">Issue an access token</button>
+    <button data-action="call">Call a Phase 3 endpoint with the token</button>
+    <button class="ghost" data-action="unauthorized">Call it without a token</button>
+    <pre id="gateway-out" hidden></pre>
+  </section>
+
+  <section>
+    <h2>Monetization engine</h2>
+    <p class="phase">Freemium tiers, per-call metering, tier billing and partner revenue settlement</p>
+    <button data-action="pricing">Show pricing tiers</button>
+    <button data-action="billing">Compute the current bill</button>
+    <button data-action="revenue">Settle an affiliate commission</button>
+    <button data-action="baas">Issue a BaaS licence invoice</button>
+    <pre id="money-out" hidden></pre>
+  </section>
+
+  <section>
+    <h2>Account verification (eKYC)</h2>
+    <p class="phase">Pay-per-call identity, employment and account ownership verification</p>
+    <button data-action="ekyc">Verify Maria on hk-hsbc-8841</button>
+    <pre id="ekyc-out" hidden></pre>
+  </section>
+
+  <section>
+    <h2>Compliance monitoring</h2>
+    <p class="phase">Consent lifecycle ledger and HKMA regulatory reporting metrics</p>
+    <button data-action="consents">Show the consent ledger</button>
+    <button data-action="report">Show the regulatory report</button>
+    <pre id="compliance-out" hidden></pre>
+  </section>
+</main>
+<script>
+let credentials = null;
+let accessToken = null;
+
+const post = (path, body, headers) => fetch(path, {
+  method: 'POST', headers: { 'Content-Type': 'application/json', ...(headers || {}) },
+  body: JSON.stringify(body || {}),
+}).then(async (r) => ({ status: r.status, body: await r.json() }));
+const get = (path, headers) => fetch(path, { headers: headers || {} })
+  .then(async (r) => ({ status: r.status, body: await r.json() }));
+const show = (id, data) => {
+  const node = document.getElementById(id);
+  node.hidden = false;
+  node.textContent = JSON.stringify(data, null, 2);
+};
+
+const actions = {
+  async register() {
+    const result = await post('/platform/tsps', { name: 'Hippo FinTech', tier: 'growth' });
+    credentials = result.body;
+    show('portal-out', result.body);
+  },
+  async catalogue() {
+    const result = await get('/platform/catalogue');
+    document.getElementById('catalogue-out').innerHTML =
+      `<table><thead><tr><th>Phase</th><th>Method</th><th>Endpoint</th></tr></thead><tbody>${
+        result.body.endpoints.map((e) => `<tr><td>${e.phase}</td><td>${e.method}</td><td>${e.path}</td></tr>`).join('')
+      }</tbody></table>`;
+  },
+  async token() {
+    if (!credentials) return show('gateway-out', { error: 'register a TSP first' });
+    const result = await post('/platform/oauth/token', {
+      clientId: credentials.clientId, clientSecret: credentials.clientSecret,
+    });
+    accessToken = result.body.accessToken;
+    show('gateway-out', result.body);
+  },
+  async call() {
+    if (!accessToken) return show('gateway-out', { error: 'issue a token first' });
+    show('gateway-out', await get('/open-api/banks/s-dbs/accounts/balance', {
+      Authorization: `Bearer ${accessToken}`,
+    }));
+  },
+  async unauthorized() {
+    show('gateway-out', await get('/open-api/banks/s-dbs/accounts/balance'));
+  },
+  async pricing() { show('money-out', (await get('/platform/pricing')).body); },
+  async billing() {
+    if (!credentials) return show('money-out', { error: 'register a TSP first' });
+    show('money-out', (await get(`/platform/billing?clientId=${credentials.clientId}`)).body);
+  },
+  async revenue() {
+    show('money-out', (await post('/platform/revenue-share', {
+      partner: 'hippo-fintech', product: 'embedded_credit_line', productValue: 30000,
+    })).body);
+  },
+  async baas() {
+    show('money-out', (await post('/platform/baas-invoice', {
+      partner: 'hippo-fintech', monthlyTransactionVolume: 4200000,
+    })).body);
+  },
+  async ekyc() {
+    show('ekyc-out', (await post('/platform/ekyc/verify', {
+      name: 'Maria', accountId: 'hk-hsbc-8841',
+    })).body);
+  },
+  async consents() { show('compliance-out', (await get('/platform/consents')).body); },
+  async report() { show('compliance-out', (await get('/platform/compliance-report')).body); },
+};
+
+document.addEventListener('click', async (event) => {
+  const button = event.target.closest('button[data-action]');
+  if (!button) return;
+  button.disabled = true;
+  try { await actions[button.dataset.action](); }
+  catch (error) { alert(String(error)); }
+  finally { button.disabled = false; }
+});
+</script>
+</body>
+</html>
