@@ -12,13 +12,20 @@ deployable application. Roles are separated by internal routes rather than by se
 
 ## Coverage
 
+Every bank exposes the same endpoint set, so each phase covers the full product line —
+deposits, loans, cards, investments and insurance — rather than a single product.
+
 - **Phase 1** product and service information: mortgage rates, deposit and FX rates,
-  credit card offers, investment products, insurance plans.
-- **Phase 2** customer acquisition: credit card applications, account opening.
-- **Phase 3** account information: balances, transaction history, reward points,
-  automated credit limit review — behind an explicit consent grant.
-- **Phase 4** transactions and payment initiation: FPS transfers, card repayment, reward
-  redemption, fund purchase orders, merchant settlement.
+  loan products (personal, mortgage, tax), credit card offers, investment products,
+  insurance plans.
+- **Phase 2** customer acquisition: account opening, credit card applications,
+  investment account setup, loan requests, insurance applications.
+- **Phase 3** account information: balances, transaction history, reward points, loan
+  details, investment holdings, policy details, automated credit limit review — behind an
+  explicit consent grant.
+- **Phase 4** transactions and payment initiation: FPS transfers, card purchases, card
+  repayment, direct debit mandates, securities trades, fund purchase orders, reward
+  redemption, merchant settlement.
 - **The eight simulated use cases**: rate aggregation, one-click applications, account
   aggregation, POS smart discount, instant credit limit boost, bill splitting, point
   stacking, micro-wealth round-up investment.
@@ -26,8 +33,9 @@ deployable application. Roles are separated by internal routes rather than by se
   QR table payment, instant merchant settlement, POS-volume working capital loans.
 - **Monetization**: freemium and tiered access with per-call metering, BaaS licensing,
   affiliate revenue share, eKYC pay-per-call, pay-by-bank merchant pricing.
-- **API platform**: developer portal and sandbox, OAuth gateway with rate limiting,
-  billing engine, consent ledger and HKMA compliance reporting.
+- **API platform**: developer portal with SDK downloads and an in-browser sandbox, an
+  OAuth gateway enforcing rate limits and volumetric DDoS protection, the billing engine,
+  the consent ledger and HKMA compliance reporting.
 
 ## Run
 

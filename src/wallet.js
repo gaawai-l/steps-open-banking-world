@@ -66,11 +66,52 @@ export function posSmartDiscount(amount, merchantCategory = 'fine_dining') {
   }
   const payable = Number((amount * (1 - best.discountPercent / 100)).toFixed(2));
   return {
+    // For fine dining this resolves to the S-DBS card and its exclusive 15% offer, which
+    // is the best dining discount any of the four banks publishes in Phase 1.
     selectedCard: best.bank,
+    selectedCardName: banks.BANKS[best.bank].name,
+    merchantCategory,
     discountPercent: best.discountPercent,
     originalAmount: amount,
     payable,
     saved: Number((amount - payable).toFixed(2)),
+    automatic: true,
+  };
+}
+
+/**
+ * Use case 4 + 5 — the restaurant checkout the exercise describes, end to end.
+ *
+ * The card is chosen automatically from the Phase 1 merchant offers, and if the
+ * discounted bill would still exceed the selected card's available credit, the wallet
+ * triggers the issuer's credit limit evaluation itself. The diner is never asked to go
+ * and request a higher limit first.
+ */
+export function diningCheckout(amount, merchantCategory = 'fine_dining') {
+  const selection = posSmartDiscount(amount, merchantCategory);
+  if (!selection.selectedCard) return { selection, creditLimitReview: null, purchase: null };
+
+  const account = banks.accountBalance(selection.selectedCard);
+  const alreadyUsed = Math.abs(Math.min(account.balance, 0));
+  const requiredCredit = Number((alreadyUsed + selection.payable).toFixed(2));
+
+  // Over the limit: evaluate automatically rather than declining and leaving the diner
+  // to raise it manually.
+  const creditLimitReview = requiredCredit > account.creditLimit
+    ? banks.reviewCreditLimit(selection.selectedCard, { requestedAmount: requiredCredit })
+    : null;
+
+  const purchase = banks.cardPurchase(selection.selectedCard, {
+    amount: selection.payable,
+    merchant: DINING_MERCHANT,
+    merchantCategory,
+  });
+  return {
+    selection,
+    overLimit: creditLimitReview !== null,
+    requiredCredit,
+    creditLimitReview,
+    purchase,
   };
 }
 
@@ -79,21 +120,51 @@ export function requestCreditLimitBoost(bank, requestedAmount) {
   return banks.reviewCreditLimit(bank, { requestedAmount });
 }
 
-/** Use case 6 — Phase 4: split the bill with real-time FPS transfers from each payer. */
-export function splitBill(totalAmount, payers) {
+/**
+ * Use case 6 — Phase 4: split the bill across the friends' accounts.
+ *
+ * Each share is collected over FPS, Hong Kong's real-time retail payment rail, so the
+ * money lands with the restaurant during the meal rather than on the next settlement
+ * cycle. The friends bank with S-HSBC and S-Bank of China.
+ */
+export function splitBill(totalAmount, payers = ['s-hsbc', 's-boc']) {
   const share = Number((totalAmount / payers.length).toFixed(2));
   const transfers = payers.map((bank) => ({
     bank,
+    bankName: banks.BANKS[bank].name,
+    rail: 'FPS',
+    realTime: true,
     ...banks.initiateFpsTransfer(bank, { amount: share, payee: DINING_MERCHANT }),
   }));
-  return { share, transfers };
+  return {
+    share,
+    rail: 'FPS',
+    settlement: 'real_time',
+    payers,
+    transfers,
+    collected: Number(transfers.filter((t) => t.status === 'settled')
+      .reduce((sum, t) => sum + share, 0).toFixed(2)),
+  };
 }
 
-/** Use case 7 — Phase 3 & 4: convert reward points into cash credit to offset the bill. */
-export function offsetWithPoints(bank, points) {
+/**
+ * Use case 7 — Phase 3 & 4: convert S-DBS reward points into cash credit and apply that
+ * credit against what is still owed at checkout, so the diner pays the reduced figure.
+ */
+export function offsetWithPoints(bank, points, remainingBill = 0) {
   const balance = banks.rewardBalance(bank);
   const redemption = banks.redeemPoints(bank, { points });
-  return { availableBefore: balance.points, ...redemption };
+  if (redemption.error) return { availableBefore: balance.points, ...redemption };
+  const credit = redemption.cashCredit;
+  const remainingAfterCredit = Number(Math.max(remainingBill - credit, 0).toFixed(2));
+  return {
+    availableBefore: balance.points,
+    ...redemption,
+    remainingBill,
+    creditApplied: Number(Math.min(credit, remainingBill).toFixed(2)),
+    remainingAfterCredit,
+    settledInFull: remainingBill > 0 && remainingAfterCredit === 0,
+  };
 }
 
 /** Use case 8 — Phase 4: round the bill up and route the spare change into a fund. */

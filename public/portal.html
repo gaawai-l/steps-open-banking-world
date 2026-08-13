@@ -22,6 +22,7 @@
     <p class="phase">Onboard a TSP, then call a live endpoint from the browser</p>
     <button data-action="register">Register a TSP on the growth tier</button>
     <button class="ghost" data-action="catalogue">Show endpoint catalogue</button>
+    <button class="ghost" data-action="sdks">Show SDK downloads</button>
     <pre id="portal-out" hidden></pre>
     <div id="catalogue-out"></div>
   </section>
@@ -32,6 +33,7 @@
     <button data-action="token">Issue an access token</button>
     <button data-action="call">Call a Phase 3 endpoint with the token</button>
     <button class="ghost" data-action="unauthorized">Call it without a token</button>
+    <button class="ghost" data-action="ddos">Show DDoS shield status</button>
     <pre id="gateway-out" hidden></pre>
   </section>
 
@@ -106,6 +108,10 @@ const actions = {
   async unauthorized() {
     show('gateway-out', await get('/open-api/banks/s-dbs/accounts/balance'));
   },
+  /** SDK access: the client libraries a registered TSP pulls to call these APIs. */
+  async sdks() { show('portal-out', await get('/platform/sdks')); },
+  /** DDoS shield state: which sources are currently being shed at the gateway. */
+  async ddos() { show('gateway-out', await get('/platform/ddos-status')); },
   async pricing() { show('money-out', (await get('/platform/pricing')).body); },
   async billing() {
     if (!credentials) return show('money-out', { error: 'register a TSP first' });

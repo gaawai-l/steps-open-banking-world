@@ -99,13 +99,19 @@ function handleOpenApi(req, res, path, body) {
 
   if (req.method === 'GET') {
     const routes = {
+      // Phase 1 — product and service information, one endpoint per product line.
       '/products/deposits': banks.depositProducts,
+      '/products/loans': banks.loanProducts,
       '/products/credit-cards': banks.creditCardOffers,
       '/products/investments': banks.investmentCatalogue,
       '/products/insurance': banks.insuranceCatalogue,
+      // Phase 3 — account information across every product the customer holds.
       '/accounts/balance': banks.accountBalance,
       '/accounts/transactions': banks.transactionHistory,
       '/accounts/reward-points': banks.rewardBalance,
+      '/accounts/loans': banks.loanDetails,
+      '/accounts/investments': banks.investmentHoldings,
+      '/accounts/policies': banks.policyDetails,
     };
     const handler = routes[rest];
     if (!handler) return sendJson(res, 404, { error: 'not_found' });
@@ -114,13 +120,21 @@ function handleOpenApi(req, res, path, body) {
 
   if (req.method === 'POST') {
     const routes = {
+      // Phase 2 — customer acquisition, one application endpoint per product line.
       '/applications/credit-card': banks.submitCreditCardApplication,
       '/applications/account': banks.openAccount,
+      '/applications/investment': banks.openInvestmentAccount,
+      '/applications/loan': banks.submitLoanApplication,
+      '/applications/insurance': banks.submitInsuranceApplication,
       '/accounts/credit-limit-review': banks.reviewCreditLimit,
+      // Phase 4 — transactions and payment initiation, one endpoint per operation type.
       '/payments/fps': banks.initiateFpsTransfer,
       '/payments/card-repayment': banks.cardRepayment,
+      '/payments/card-purchase': banks.cardPurchase,
+      '/payments/direct-debit-mandate': banks.directDebitMandate,
       '/rewards/redeem': banks.redeemPoints,
       '/investments/orders': banks.purchaseInvestment,
+      '/investments/trades': banks.securitiesTrade,
       '/credit/embedded-line': banks.embeddedCreditLine,
       '/credit/bnpl': banks.bnplPlan,
     };
@@ -154,6 +168,8 @@ function handleWallet(req, res, path, body) {
     case '/api/applications':
       return sendJson(res, 200, { applications: wallet.applyForCreditCards(body.applicantName || 'Maria') });
     case '/api/pos/checkout':
+      return sendJson(res, 200, wallet.diningCheckout(Number(body.amount || 0), body.merchantCategory));
+    case '/api/pos/card-selection':
       return sendJson(res, 200, wallet.posSmartDiscount(Number(body.amount || 0), body.merchantCategory));
     case '/api/credit-limit':
       return sendJson(res, 200, wallet.requestCreditLimitBoost(body.bank || 's-dbs', Number(body.requestedAmount || 0)));
@@ -163,7 +179,11 @@ function handleWallet(req, res, path, body) {
         Array.isArray(body.payers) && body.payers.length ? body.payers : ['s-hsbc', 's-boc'],
       ));
     case '/api/points/offset':
-      return send(res, wallet.offsetWithPoints(body.bank || 's-dbs', Number(body.points || 0)));
+      return send(res, wallet.offsetWithPoints(
+        body.bank || 's-dbs',
+        Number(body.points || 0),
+        Number(body.remainingBill || 0),
+      ));
     case '/api/roundup':
       return sendJson(res, 200, wallet.roundUpInvestment(Number(body.amount || 0), body.bank, body.productCode));
     case '/api/credit/embedded':
@@ -195,6 +215,10 @@ function handlePlatform(req, res, path, body, url) {
         return sendJson(res, 200, { tsps: platform.listTsps() });
       case '/platform/billing':
         return send(res, platform.billingStatement(url.searchParams.get('clientId') || ''));
+      case '/platform/sdks':
+        return sendJson(res, 200, platform.sdkCatalogue());
+      case '/platform/ddos-status':
+        return sendJson(res, 200, platform.ddosStatus());
       case '/platform/consents':
         return sendJson(res, 200, { consents: platform.consentLedger() });
       case '/platform/compliance-report':

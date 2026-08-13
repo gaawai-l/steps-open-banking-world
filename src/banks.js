@@ -60,6 +60,37 @@ const insurancePlans = Object.fromEntries(BANK_KEYS.map((bank) => [
   [{ code: `${bank.toUpperCase()}-LIFE-1`, kind: 'life', annualPremium: 4800 }],
 ]));
 
+/** Phase 1 loan catalogue, offered by every bank alongside deposits and investments. */
+const loanCatalogue = Object.fromEntries(BANK_KEYS.map((bank) => [
+  bank,
+  [
+    { code: `${bank.toUpperCase()}-PL`, kind: 'personal_loan', annualRate: Number((BANKS[bank].mortgageRate + 2.6).toFixed(2)) },
+    { code: `${bank.toUpperCase()}-MTG`, kind: 'mortgage', annualRate: BANKS[bank].mortgageRate },
+    { code: `${bank.toUpperCase()}-TAX`, kind: 'tax_loan', annualRate: Number((BANKS[bank].mortgageRate + 0.4).toFixed(2)) },
+  ],
+]));
+
+/** Phase 3 drawn-down loans, the account-service data behind a loan detail enquiry. */
+const drawnLoans = {
+  's-hsbc': [{ loanId: 'hk-hsbc-mtg-01', kind: 'mortgage', outstanding: 2480000, annualRate: 3.38, remainingTermMonths: 244 }],
+  's-scb': [{ loanId: 'hk-scb-pl-07', kind: 'personal_loan', outstanding: 68000, annualRate: 5.85, remainingTermMonths: 22 }],
+  's-dbs': [{ loanId: 'hk-dbs-tax-03', kind: 'tax_loan', outstanding: 41000, annualRate: 3.85, remainingTermMonths: 9 }],
+  's-boc': [{ loanId: 'hk-boc-pl-12', kind: 'personal_loan', outstanding: 15400, annualRate: 5.79, remainingTermMonths: 14 }],
+};
+
+/** Phase 3 in-force policies, the account-service data behind a policy detail enquiry. */
+const heldPolicies = Object.fromEntries(BANK_KEYS.map((bank) => [
+  bank,
+  [{
+    policyId: `${bank}-pol-2201`,
+    kind: 'life',
+    sumInsured: 1200000,
+    annualPremium: 4800,
+    renewalDate: '2027-03-01',
+    status: 'in_force',
+  }],
+]));
+
 export const knownBank = (bank) => Object.prototype.hasOwnProperty.call(BANKS, bank);
 
 export const listBanks = () => BANK_KEYS.map((key) => ({ key, ...BANKS[key] }));
@@ -91,6 +122,7 @@ export function creditCardOffers(bank) {
 
 export const investmentCatalogue = (bank) => ({ bank, products: investmentProducts[bank] });
 export const insuranceCatalogue = (bank) => ({ bank, plans: insurancePlans[bank] });
+export const loanProducts = (bank) => ({ bank, loans: loanCatalogue[bank] });
 
 // --- Phase 2: customer acquisition -------------------------------------------------
 
@@ -118,6 +150,54 @@ export function openAccount(bank, payload) {
   };
 }
 
+/** Phase 2 investment account setup, the entry point for the investment product line. */
+export function openInvestmentAccount(bank, payload) {
+  const applicant = String(payload.applicantName || '').trim();
+  if (!applicant) return { error: 'applicant_name is required' };
+  return {
+    bank,
+    applicationId: `${bank}-inv-${hash(applicant)}`,
+    status: 'received',
+    product: 'investment_account',
+    riskProfile: payload.riskProfile || 'balanced',
+  };
+}
+
+/** Phase 2 loan request, submitted with the applicant's declared income. */
+export function submitLoanApplication(bank, payload) {
+  const applicant = String(payload.applicantName || '').trim();
+  const amount = Number(payload.amount || 0);
+  if (!applicant) return { error: 'applicant_name is required' };
+  if (amount <= 0) return { error: 'amount must be positive' };
+  const product = loanCatalogue[bank].find((item) => item.kind === (payload.kind || 'personal_loan'));
+  if (!product) return { error: 'unknown_loan_kind' };
+  return {
+    bank,
+    applicationId: `${bank}-loan-${hash(applicant)}`,
+    status: 'received',
+    product: 'loan',
+    kind: product.kind,
+    requestedAmount: amount,
+    indicativeAnnualRate: product.annualRate,
+  };
+}
+
+/** Phase 2 insurance application for one of the bank's Phase 1 plans. */
+export function submitInsuranceApplication(bank, payload) {
+  const applicant = String(payload.applicantName || '').trim();
+  if (!applicant) return { error: 'applicant_name is required' };
+  const plan = insurancePlans[bank].find((item) => item.code === payload.planCode)
+    ?? insurancePlans[bank][0];
+  return {
+    bank,
+    applicationId: `${bank}-ins-${hash(applicant)}`,
+    status: 'received',
+    product: 'insurance',
+    planCode: plan.code,
+    annualPremium: plan.annualPremium,
+  };
+}
+
 // --- Phase 3: account information --------------------------------------------------
 
 /** Phase 3 account information; the basis for consolidated account aggregation. */
@@ -139,6 +219,23 @@ export const rewardBalance = (bank) => ({
   bank,
   points: rewardPoints[bank],
   cashValue: Number((rewardPoints[bank] * POINT_TO_HKD).toFixed(2)),
+});
+
+/** Phase 3 loan details: outstanding balance, rate and remaining term per drawn loan. */
+export const loanDetails = (bank) => ({ bank, loans: drawnLoans[bank] });
+
+/** Phase 3 policy details: sum insured, premium and renewal date per in-force policy. */
+export const policyDetails = (bank) => ({ bank, policies: heldPolicies[bank] });
+
+/** Phase 3 investment holdings valued at the current indicative yield. */
+export const investmentHoldings = (bank) => ({
+  bank,
+  holdings: investmentProducts[bank].map((product) => ({
+    code: product.code,
+    kind: product.kind,
+    units: 100,
+    marketValue: Number((100 * (10 + product.indicativeYield)).toFixed(2)),
+  })),
 });
 
 /** Phase 3 + 4: automated credit limit review when a bill exceeds the current limit. */
@@ -208,6 +305,66 @@ export function purchaseInvestment(bank, payload) {
     status: 'accepted',
     product,
     amount,
+  };
+}
+
+/** Phase 4 card purchase authorisation at a merchant terminal. */
+export function cardPurchase(bank, payload) {
+  const amount = Number(payload.amount || 0);
+  if (amount <= 0) return { error: 'amount must be positive' };
+  const account = accounts[bank];
+  const exposure = Math.abs(Math.min(account.balance, 0)) + amount;
+  if (exposure > creditLimits[bank]) {
+    return { error: 'over_credit_limit', creditLimit: creditLimits[bank], required: exposure };
+  }
+  account.balance = Number((account.balance - amount).toFixed(2));
+  return {
+    bank,
+    purchaseId: `pur-${bank}-${Math.round(amount * 100)}`,
+    status: 'authorised',
+    amount,
+    merchant: payload.merchant || 'unknown',
+    merchantCategory: payload.merchantCategory || 'general',
+  };
+}
+
+/** Phase 4 securities trade: a buy or sell order against a listed instrument. */
+export function securitiesTrade(bank, payload) {
+  const side = payload.side === 'sell' ? 'sell' : 'buy';
+  const quantity = Number(payload.quantity || 0);
+  const symbol = String(payload.symbol || '').trim();
+  if (!symbol) return { error: 'symbol is required' };
+  if (!Number.isInteger(quantity) || quantity <= 0) return { error: 'invalid_quantity' };
+  const price = Number((100 + (symbol.length * 7.5)).toFixed(2));
+  return {
+    bank,
+    tradeId: `trd-${bank}-${quantity}-${symbol.toLowerCase()}`,
+    status: 'executed',
+    side,
+    symbol,
+    quantity,
+    executedPrice: price,
+    consideration: Number((price * quantity).toFixed(2)),
+  };
+}
+
+/**
+ * Phase 4 direct debit mandate: a recurring authorisation the payer grants once, which
+ * later collections draw against without a fresh approval each cycle.
+ */
+export function directDebitMandate(bank, payload) {
+  const amount = Number(payload.amountPerCycle || 0);
+  const payee = String(payload.payee || '').trim();
+  if (!payee) return { error: 'payee is required' };
+  if (amount <= 0) return { error: 'amountPerCycle must be positive' };
+  return {
+    bank,
+    mandateId: `ddm-${bank}-${hash(payee)}`,
+    status: 'active',
+    payee,
+    amountPerCycle: amount,
+    frequency: payload.frequency || 'monthly',
+    nextCollectionDate: '2026-09-01',
   };
 }
 

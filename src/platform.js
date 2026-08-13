@@ -13,6 +13,13 @@ const CALL_LOG = [];
 const CONSENT_LOG = [];
 const RATE_WINDOW_MS = 60_000;
 
+/** DDoS shield state: a one-second burst window and the block it triggers. */
+const DDOS_WINDOW = new Map();
+const DDOS_BLOCKS = new Map();
+const DDOS_WINDOW_MS = 1_000;
+const DDOS_BURST_THRESHOLD = 120;
+const DDOS_BLOCK_MS = 60_000;
+
 /**
  * Freemium and tiered access: phase 1 product data is free, while phase 3 account data
  * and phase 4 payment execution are charged per call at a tier-dependent rate.
@@ -47,7 +54,8 @@ export const MERCHANT_PRICING = { payByBankRate: 0.005, cardSchemeRate: 0.025 };
 
 export function phaseOfPath(path) {
   if (path.includes('/payments/') || path.includes('/rewards/redeem')
-    || path.includes('/investments/orders') || path.includes('/merchant/')) return 'phase4';
+    || path.includes('/investments/orders') || path.includes('/investments/trades')
+    || path.includes('/merchant/')) return 'phase4';
   if (path.includes('/accounts/')) return 'phase3';
   if (path.includes('/applications/')) return 'phase2';
   return 'phase1';
@@ -66,6 +74,41 @@ export function registerTsp(payload) {
 
 export const listTsps = () => [...TSP_REGISTRY.values()]
   .map(({ clientSecret, ...rest }) => rest);
+
+/**
+ * Developer portal: the SDKs a registered TSP can pull to call these APIs, alongside the
+ * sandbox. Each entry carries the install command and a ready-to-run snippet so a
+ * developer does not have to hand-roll the OAuth exchange.
+ */
+export function sdkCatalogue() {
+  return {
+    sdks: [
+      {
+        language: 'javascript',
+        package: '@hippo/open-api-sdk',
+        install: 'npm install @hippo/open-api-sdk',
+        snippet: "const client = new HippoOpenApi({ clientId, clientSecret });\n"
+          + "await client.phase1.mortgageRates();",
+      },
+      {
+        language: 'python',
+        package: 'hippo-open-api',
+        install: 'pip install hippo-open-api',
+        snippet: 'client = HippoOpenApi(client_id, client_secret)\n'
+          + 'client.phase3.account_balance("s-dbs")',
+      },
+      {
+        language: 'java',
+        package: 'io.hippo:open-api-sdk',
+        install: 'implementation "io.hippo:open-api-sdk:1.4.0"',
+        snippet: 'HippoOpenApi client = new HippoOpenApi(clientId, clientSecret);\n'
+          + 'client.phase4().initiateFpsTransfer("s-hsbc", request);',
+      },
+    ],
+    openApiSpecUrl: '/platform/openapi.json',
+    postmanCollectionUrl: '/platform/postman-collection.json',
+  };
+}
 
 /** Gateway: OAuth client-credentials token issuance. */
 export function issueToken(payload) {
@@ -86,6 +129,12 @@ export function authorizeCall(authorizationHeader, path) {
   const token = String(authorizationHeader || '').replace(/^Bearer\s+/i, '');
   const session = TOKENS.get(token);
   if (!session) return { status: 401, body: { error: 'invalid_token' } };
+
+  // DDoS protection runs ahead of the per-tier quota: a volumetric burst has to be shed
+  // before it is metered, or the flood itself becomes a billable event.
+  const shed = ddosShield(session.clientId);
+  if (shed) return shed;
+
   const tsp = TSP_REGISTRY.get(session.clientId);
   const limit = PRICING[tsp.tier].rateLimitPerMinute;
   const now = Date.now();
@@ -97,6 +146,51 @@ export function authorizeCall(authorizationHeader, path) {
   meterCall({ clientId: session.clientId, tier: tsp.tier, path });
   return null;
 }
+
+/**
+ * Gateway: volumetric DDoS protection.
+ *
+ * Distinct from rate limiting, which shapes a paying client's normal traffic to its tier.
+ * This sheds an attack: a burst far above any tier's ceiling trips a temporary block on
+ * the source, so one hostile client cannot exhaust the gateway for everyone else.
+ */
+export function ddosShield(clientId, now = Date.now()) {
+  const blockedUntil = DDOS_BLOCKS.get(clientId);
+  if (blockedUntil && blockedUntil > now) {
+    return {
+      status: 429,
+      body: {
+        error: 'ddos_protection_triggered',
+        retryAfterSeconds: Math.ceil((blockedUntil - now) / 1000),
+      },
+    };
+  }
+  const recent = (DDOS_WINDOW.get(clientId) ?? []).filter((at) => now - at < DDOS_WINDOW_MS);
+  recent.push(now);
+  DDOS_WINDOW.set(clientId, recent);
+  if (recent.length > DDOS_BURST_THRESHOLD) {
+    DDOS_BLOCKS.set(clientId, now + DDOS_BLOCK_MS);
+    return {
+      status: 429,
+      body: {
+        error: 'ddos_protection_triggered',
+        burstSize: recent.length,
+        thresholdPerSecond: DDOS_BURST_THRESHOLD,
+        retryAfterSeconds: DDOS_BLOCK_MS / 1000,
+      },
+    };
+  }
+  return null;
+}
+
+/** Current DDoS shield state, surfaced on the platform's operations dashboard. */
+export const ddosStatus = () => ({
+  thresholdPerSecond: DDOS_BURST_THRESHOLD,
+  blockDurationSeconds: DDOS_BLOCK_MS / 1000,
+  blockedClients: [...DDOS_BLOCKS.entries()]
+    .filter(([, until]) => until > Date.now())
+    .map(([clientId, until]) => ({ clientId, retryAfterSeconds: Math.ceil((until - Date.now()) / 1000) })),
+});
 
 /** Monetization engine: meter one billable call. */
 export function meterCall({ clientId, tier, path }) {
@@ -232,16 +326,26 @@ export const ENDPOINT_CATALOGUE = [
   { phase: 1, method: 'GET', path: '/open-api/banks/{bank}/products/credit-cards', summary: 'Card cashback and merchant offers' },
   { phase: 1, method: 'GET', path: '/open-api/banks/{bank}/products/investments', summary: 'Retail fund and structured product terms' },
   { phase: 1, method: 'GET', path: '/open-api/banks/{bank}/products/insurance', summary: 'General and life plan details' },
+  { phase: 1, method: 'GET', path: '/open-api/banks/{bank}/products/loans', summary: 'Personal loan, mortgage and tax loan terms' },
   { phase: 2, method: 'POST', path: '/open-api/banks/{bank}/applications/credit-card', summary: 'Card application' },
   { phase: 2, method: 'POST', path: '/open-api/banks/{bank}/applications/account', summary: 'Account opening' },
+  { phase: 2, method: 'POST', path: '/open-api/banks/{bank}/applications/investment', summary: 'Investment account setup' },
+  { phase: 2, method: 'POST', path: '/open-api/banks/{bank}/applications/loan', summary: 'Loan request' },
+  { phase: 2, method: 'POST', path: '/open-api/banks/{bank}/applications/insurance', summary: 'Insurance application' },
   { phase: 3, method: 'GET', path: '/open-api/banks/{bank}/accounts/balance', summary: 'Account balance and credit limit' },
   { phase: 3, method: 'GET', path: '/open-api/banks/{bank}/accounts/transactions', summary: 'Transaction history' },
   { phase: 3, method: 'GET', path: '/open-api/banks/{bank}/accounts/reward-points', summary: 'Reward point balance' },
+  { phase: 3, method: 'GET', path: '/open-api/banks/{bank}/accounts/loans', summary: 'Loan details: outstanding, rate and term' },
+  { phase: 3, method: 'GET', path: '/open-api/banks/{bank}/accounts/investments', summary: 'Investment holdings and market value' },
+  { phase: 3, method: 'GET', path: '/open-api/banks/{bank}/accounts/policies', summary: 'Policy details: sum insured and renewal' },
   { phase: 3, method: 'POST', path: '/open-api/banks/{bank}/accounts/credit-limit-review', summary: 'Automated credit limit evaluation' },
   { phase: 4, method: 'POST', path: '/open-api/banks/{bank}/payments/fps', summary: 'FPS transfer' },
   { phase: 4, method: 'POST', path: '/open-api/banks/{bank}/payments/card-repayment', summary: 'Card repayment' },
+  { phase: 4, method: 'POST', path: '/open-api/banks/{bank}/payments/card-purchase', summary: 'Card purchase authorisation' },
+  { phase: 4, method: 'POST', path: '/open-api/banks/{bank}/payments/direct-debit-mandate', summary: 'Direct debit mandate' },
   { phase: 4, method: 'POST', path: '/open-api/banks/{bank}/rewards/redeem', summary: 'Reward point redemption' },
   { phase: 4, method: 'POST', path: '/open-api/banks/{bank}/investments/orders', summary: 'Fund purchase order' },
+  { phase: 4, method: 'POST', path: '/open-api/banks/{bank}/investments/trades', summary: 'Securities buy or sell trade' },
   { phase: 4, method: 'POST', path: '/open-api/merchant/settlement', summary: 'Direct debit merchant settlement' },
 ];
 
